@@ -6,10 +6,12 @@ import time
 
 domain_list = ['github.com',
                'github.global.ssl.fastly.net',
-               'assets-cdn.github.com']
+               'assets-cdn.github.com',
+               'gist.github.com']
 
 #ip_reg = r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"
 
+LINUX_HOSTS_PATH = '/etc/hosts'
 class AsynHttpProcessor:
     def __init__(self, url_list: list, num_of_cor:int = None, header:str = None):
         self._url_list = url_list
@@ -240,10 +242,52 @@ async def main2():
     await domain_name_parser.start_forever(1)
     print(domain_name_parser.get_dns_dict())
 
+
+def ModifyHostFile(dnsDictIn):
+    import os
+    import re
+    import sys
+    dnsDict = {k:v for k, v in dnsDictIn.items()}
+    euid = os.geteuid()
+    if euid != 0:
+        print("Script not started as root. Running sudo..")
+        args = ['sudo', sys.executable] + sys.argv + [os.environ]
+        # the next line replaces the currently-running process with the sudo
+        os.execlpe('sudo', *args)
+
+    print('Running. Your euid is', euid)
+
+    with open(LINUX_HOSTS_PATH ,'r+') as fh:
+        lines = fh.readlines()
+    for i, line in enumerate(lines):
+        loc = line.find('#')
+        #print(f"line: {line}, LOC:{loc}")
+        content =  line if loc == -1 else line[:loc]
+        for domainName, ip in dnsDict.items():
+            dnLoc = content.lower().find(domainName.lower())
+            if dnLoc >= 0:
+                content = f'{ip}\t{content[dnLoc:]}'
+                del dnsDict[domainName]
+                break
+        if loc == -1:
+            line = content
+        else:
+            line = content + line[loc:]
+        lines[i] = line
+
+    for domainName, ip in dnsDict.items():
+        lines.append(f'{ip}\t{domainName}\n')
+    with open(LINUX_HOSTS_PATH,'w+') as fh:
+        fh.writelines(lines)
+
+
+
+
 def main3():
     domain_name_parser = DomainNameParser(domain_list)
     domain_name_parser.start()
-    print(domain_name_parser.get_dns_dict())
+    dnsDict = domain_name_parser.get_dns_dict()
+    ModifyHostFile(dnsDictIn=dnsDict)
 
 if __name__ == '__main__':
     #import nest_asyncio
@@ -253,6 +297,9 @@ if __name__ == '__main__':
     #loop = asyncio.get_event_loop()
     #loop.run_until_complete(main2())
     #loop.close()
+
     main3()
+    #ModifyHostFile({'www.kimme.cn':'192.168.1.1',
+    #                'gist.github.com':'140.82.112.499'})
 
 
